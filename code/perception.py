@@ -96,9 +96,9 @@ def getTerrain(img):
     mask[idx]=1
     return mask
 
-
 # Apply the above functions in succession and update the Rover state accordingly
 def perception_step(Rover):
+    
     # Perform perception steps to update Rover()
     # TODO: 
     # NOTE: camera image is coming to you in Rover.img
@@ -125,7 +125,7 @@ def perception_step(Rover):
     mask_t = getTerrain(warped)*mask
     #mask_o = getObstacle(warped)*mask
     mask_o = (1.0-mask_t)*mask
-    mask_t[:mask_t.shape[0]//3,:]=0
+    mask_t[:mask_t.shape[0]//2,:]=0
     mask_r = getRock(warped)*mask
     
     # 4) Update Rover.vision_image (this will be displayed on left side of screen)
@@ -147,21 +147,45 @@ def perception_step(Rover):
         # Example: Rover.worldmap[obstacle_y_world, obstacle_x_world, 0] += 1
         #          Rover.worldmap[rock_y_world, rock_x_world, 1] += 1
         #          Rover.worldmap[navigable_y_world, navigable_x_world, 2] += 1
-    if Rover.pitch<5 and Rover.roll<5:
+    if Rover.pitch<3 and Rover.roll<3:
         Rover.worldmap[ypix_t_w, xpix_t_w, 2] = 255
         Rover.worldmap[Rover.worldmap[:,:,2]>0,0] = 0
     Rover.worldmap[ypix_o_w, xpix_o_w, 0] = 255
     Rover.worldmap[ypix_r_w, xpix_r_w, 1] = 255
     
-    
     # 8) Convert rover-centric pixel positions to polar coordinates
     # Update Rover pixel distances and angles
         # Rover.nav_dists = rover_centric_pixel_distances
         # Rover.nav_angles = rover_centric_angles
-    
-    
-    Rover.nav_dists,Rover.nav_angles = to_polar_coords(xpix_t, ypix_t)
-    Rover.nav_angles = Rover.nav_angles[(Rover.nav_dists<40)]
-    Rover.nav_dists = Rover.nav_dists[(Rover.nav_dists<40)]
+    ratio = 70/128.0
+    mask_t[:,np.int(mask_t.shape[1]*ratio):]=0
+    mask_r[:,np.int(mask_t.shape[1]*ratio):]=0
+    xpix_r_, ypix_r_ = rover_coords(mask_r)
+    Rover.nav_dists = None
+    Rover.nav_angles = None
+    if len(xpix_r_)>0:
+      nav_dists,nav_angles = to_polar_coords(xpix_r_, ypix_r_)
+      nav_angles = nav_angles[(nav_dists==np.min(nav_dists))]
+      nav_dists = nav_dists[(nav_dists==np.min(nav_dists))]
+      nav_angles = nav_angles[(nav_dists<120)]
+      nav_dists = nav_dists[(nav_dists<120)]
+      #if Rover.nav_dists[0]>15:
+       # Rover.nav_angles = np.tile(Rover.nav_angles,Rover.stop_forward)
+        #Rover.nav_dists = np.tile(Rover.nav_dists,Rover.stop_forward)
+      if nav_angles is not None and len(nav_angles)>0:
+        print('Rock! Rock! Rock!')
+        #print(len(Rover.nav_dists))
+        Rover.nav_dists = nav_dists
+        Rover.nav_angles = nav_angles
+        if not Rover.picking_up:
+          Rover.mode = 'wait'
+          global in_wait_state
+          in_wait_state = True
+    if Rover.nav_dists is None:
+      xpix_t_, ypix_t_ = rover_coords(mask_t)
+      Rover.nav_dists,Rover.nav_angles = to_polar_coords(xpix_t_, ypix_t_)
+      Rover.nav_angles = Rover.nav_angles[(Rover.nav_dists<120)]
+      Rover.nav_dists = Rover.nav_dists[(Rover.nav_dists<120)]
+
     
     return Rover

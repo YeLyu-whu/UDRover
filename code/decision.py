@@ -1,6 +1,9 @@
 import numpy as np
+import time
 
-
+time1 = 0
+time_steer = 0
+in_wait_state = False
 # This is where you can build a decision tree for determining throttle, brake and steer 
 # commands based on the output of the perception_step() function
 def decision_step(Rover):
@@ -11,6 +14,9 @@ def decision_step(Rover):
 
     # Example:
     # Check if we have vision data to make decisions with
+    global time1
+    global time_steer
+    global in_wait_state
     if Rover.nav_angles is not None:
         # Check for Rover.mode status
         if Rover.mode == 'forward': 
@@ -23,6 +29,13 @@ def decision_step(Rover):
                     Rover.throttle = Rover.throttle_set
                 else: # Else coast
                     Rover.throttle = 0
+                if Rover.vel<0.4:
+                    diff_t = time.clock()-time1
+                    print(time1)
+                    print(diff_t)
+                    if diff_t >0.5:
+                        Rover.mode = 'steer'
+                        time_steer = time.clock()
                 Rover.brake = 0
                 # Set steering to average angle clipped to the range +/- 15
                 Rover.steer = np.clip(np.mean(Rover.nav_angles * 180/np.pi), -15, 15)
@@ -31,11 +44,26 @@ def decision_step(Rover):
             # If there's a lack of navigable terrain pixels then go to 'stop' mode
             elif len(Rover.nav_angles) < Rover.stop_forward:
                     # Set mode to "stop" and hit the brakes!
-                    Rover.throttle = 0
-                    # Set brake to stored brake value
-                    Rover.brake = Rover.brake_set
-                    Rover.steer = 0
-                    Rover.mode = 'stop'
+                    if len(Rover.nav_angles)==1:
+                        if Rover.nav_dists[0]>20:
+                            if Rover.vel < np.amax([Rover.max_vel/2,Rover.nav_dists[0]/10]):
+                                # Set throttle value to throttle setting
+                                Rover.throttle = Rover.throttle_set
+                                Rover.steer = np.clip(np.mean(Rover.nav_angles * 180/np.pi), -15, 15)
+                            else: # Else coast
+                                Rover.throttle = 0
+                        else:
+                            Rover.throttle = 0
+                            # Set brake to stored brake value
+                            Rover.brake = Rover.brake_set
+                            Rover.steer = 0
+                            
+                    else:
+                        Rover.throttle = 0
+                        # Set brake to stored brake value
+                        Rover.brake = Rover.brake_set
+                        Rover.steer = 0
+                        Rover.mode = 'stop'
 
         # If we're already in "stop" mode then make different decisions
         elif Rover.mode == 'stop':
@@ -63,6 +91,43 @@ def decision_step(Rover):
                     Rover.steer = np.clip(np.mean(Rover.nav_angles * 180/np.pi), -15, 15)
                    
                     Rover.mode = 'forward'
+                    time1 = time.clock()
+        elif Rover.mode=='steer':
+            if Rover.vel > 0.2:
+                Rover.throttle = 0
+                Rover.brake = Rover.brake_set
+                Rover.steer = 0
+            # If we're not moving (vel < 0.2) then do something else
+            elif Rover.vel <= 0.2:
+                # Now we're stopped and we have vision data to see if there's a path forward
+                Rover.throttle = 0
+                # Release the brake to allow turning
+                Rover.brake = 0
+                # Turn range is +/- 15 degrees, when stopped the next line will induce 4-wheel turning
+                Rover.steer = -15 # Could be more clever here about which way to turn
+                # If we're stopped but see sufficient navigable terrain in front then go!
+                if time.clock()-time_steer>0.2:
+                    Rover.mode = 'forward'
+                time1 = time.clock()
+        elif Rover.mode=='wait':
+            
+            if not Rover.near_sample:
+                if Rover.vel > 1:
+                    Rover.throttle = 0
+                    Rover.brake = Rover.brake_set/2
+                    Rover.steer = np.clip(np.mean(Rover.nav_angles * 180/np.pi), -15, 15)
+                else:
+                    Rover.throttle=0.2
+                    Rover.brake = 0
+                    Rover.steer = np.clip(np.mean(Rover.nav_angles * 180/np.pi), -15, 15)
+            else:
+                Rover.throttle = 0
+                Rover.brake = Rover.brake_set
+                Rover.steer = np.clip(np.mean(Rover.nav_angles * 180/np.pi), -15, 15)
+            if in_wait_state==False:
+                Rover.mode = 'forward'
+                time1 = time.clock()
+        print(Rover.mode)
     # Just to make the rover do something 
     # even if no modifications have been made to the code
     else:
@@ -73,6 +138,7 @@ def decision_step(Rover):
     # If in a state where want to pickup a rock send pickup command
     if Rover.near_sample and Rover.vel == 0 and not Rover.picking_up:
         Rover.send_pickup = True
+        in_wait_state = False
     
     return Rover
 
